@@ -48,23 +48,31 @@ jobs:
 
       - name: Configure .pypirc for GitHub Packages and PyPI
         run: |
-          mkdir -p "$HOME"
-          echo "[distutils]" > "$HOME/.pypirc"
-          echo "index-servers =" >> "$HOME/.pypirc"
-          echo "    github" >> "$HOME/.pypirc"
-          echo "    pypi" >> "$HOME/.pypirc"
-          echo "" >> "$HOME/.pypirc"
-          echo "[github]" >> "$HOME/.pypirc"
-          echo "repository: https://upload.pypi.github.com/legacy/" >> "$HOME/.pypirc"
-          echo "username: $GITHUB_ACTOR" >> "$HOME/.pypirc"
-          echo "password: $GITHUB_TOKEN" >> "$HOME/.pypirc"
-          echo "" >> "$HOME/.pypirc"
-          echo "[pypi]" >> "$HOME/.pypirc"
-          echo "repository: https://upload.pypi.org/legacy/" >> "$HOME/.pypirc"
-          echo "username: __token__" >> "$HOME/.pypirc"
-          echo "password: $PYPI_API_TOKEN" >> "$HOME/.pypirc"
+          PYPIRC_DIR="${HOME:-$GITHUB_WORKSPACE}"
+          echo "Using pypirc directory: $PYPIRC_DIR"
+          mkdir -p "$PYPIRC_DIR" || { echo "Cannot create $PYPIRC_DIR"; exit 1; }
+          PYPIRC_PATH="$PYPIRC_DIR/.pypirc"
+          {
+            echo "[distutils]"
+            echo "index-servers ="
+            echo "    github"
+            echo "    pypi"
+            echo ""
+            echo "[github]"
+            echo "repository: https://upload.pypi.github.com/legacy/"
+            echo "username: $GITHUB_ACTOR"
+            echo "password: $GITHUB_TOKEN"
+            echo ""
+            echo "[pypi]"
+            echo "repository: https://upload.pypi.org/legacy/"
+            echo "username: __token__"
+            echo "password: $PYPI_API_TOKEN"
+          } > "$PYPIRC_PATH"
+          echo "Wrote $PYPIRC_PATH"
         env:
           PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish to GitHub Packages
         if: ${{ startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master' }}
