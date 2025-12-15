@@ -2,11 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="home-console-sdk",
-    use_scm_version={
-        "write_to": "home_console_sdk/_version.py",
-        "write_to_template": '__version__ = "{version}"\n',
-        "root": "..",
-    },
+    use_scm_version=True,
     description="SDK for Home Console Plugin Development",
     author="Mishazx",
     packages=find_packages(),
