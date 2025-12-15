@@ -5,9 +5,13 @@ on:
     tags:
       - 'v*.*.*'
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   build-and-publish:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux]
 
     steps:
       - name: Checkout
@@ -27,10 +31,39 @@ jobs:
         run: |
           python -m build sdk/python
 
-      - name: Publish to PyPI
+      - name: Configure .pypirc for GitHub Packages and PyPI
+        run: |
+          mkdir -p $HOME/.config/pypirc
+          cat > $HOME/.pypirc <<'PYPI'
+[distutils]
+index-servers =
+    github
+    pypi
+
+[github]
+repository: https://upload.pypi.github.com/legacy/
+username: $GITHUB_ACTOR
+password: $GITHUB_TOKEN
+
+[pypi]
+repository: https://upload.pypi.org/legacy/
+username: __token__
+password: $PYPI_API_TOKEN
+PYPI
+        env:
+          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+
+      - name: Publish to GitHub Packages
         if: startsWith(github.ref, 'refs/tags/')
         env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python -m twine upload sdk/python/dist/*
+          python -m twine upload --repository github sdk/python/dist/*
+
+      - name: Publish to PyPI (optional)
+        if: ${{ secrets.PYPI_API_TOKEN != '' && startsWith(github.ref, 'refs/tags/') }}
+        env:
+          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          python -m twine upload --repository pypi sdk/python/dist/*
