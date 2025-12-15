@@ -43,9 +43,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install build twine
 
+      - name: Set version from git tag
+        run: |
+          VERSION=$(git describe --tags --abbrev=0 | sed 's/^v//')
+          echo "SETUPTOOLS_SCM_PRETEND_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Extracted version: $VERSION"
+
       - name: Build package
         run: |
           python -m build "$PKG_DIR"
+        env:
+          SETUPTOOLS_SCM_PRETEND_VERSION_FOR_HOME_CONSOLE_SDK: ${{ env.SETUPTOOLS_SCM_PRETEND_VERSION }}
 
       - name: Configure .pypirc for PyPI
         run: |
