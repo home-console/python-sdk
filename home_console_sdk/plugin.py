@@ -11,6 +11,8 @@ from typing import Optional, Dict, Any
 from .client import CoreAPIClient
 import logging
 import os
+import json
+from pathlib import Path
 from fastapi import APIRouter
 
 
@@ -234,3 +236,34 @@ class InternalPluginBase(ABC):
         """
         env_key = f"PLUGIN_{self.id.upper().replace('-', '_')}_{key.upper()}"
         return os.getenv(env_key, default)
+    
+    @classmethod
+    def load_manifest(cls, manifest_path: str) -> Optional[Dict[str, Any]]:
+        """
+        Загрузить метаданные плагина из plugin.json.
+        
+        Args:
+            manifest_path: Путь к plugin.json
+            
+        Returns:
+            Dict с метаданными или None если файл не найден
+            
+        Пример:
+            # В plugin_loader.py
+            metadata = InternalPluginBase.load_manifest("/opt/plugins/my-plugin/plugin.json")
+            if metadata:
+                plugin.name = metadata.get('name', plugin.name)
+                plugin.version = metadata.get('version', plugin.version)
+        """
+        try:
+            path = Path(manifest_path)
+            if not path.exists():
+                return None
+            
+            with open(path, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+            
+            return metadata
+        except Exception as e:
+            logging.getLogger(__name__).error(f"Failed to load manifest from {manifest_path}: {e}")
+            return None
