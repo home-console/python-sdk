@@ -48,10 +48,6 @@ jobs:
 
       - name: Configure .pypirc for GitHub Packages and PyPI
         run: |
-          PYPIRC_DIR="${HOME:-$GITHUB_WORKSPACE}"
-          echo "Using pypirc directory: $PYPIRC_DIR"
-          mkdir -p "$PYPIRC_DIR" || { echo "Cannot create $PYPIRC_DIR"; exit 1; }
-          PYPIRC_PATH="$PYPIRC_DIR/.pypirc"
           {
             echo "[distutils]"
             echo "index-servers ="
@@ -67,9 +63,10 @@ jobs:
             echo "repository: https://upload.pypi.org/legacy/"
             echo "username: __token__"
             echo "password: $PYPI_API_TOKEN"
-          } > "$PYPIRC_PATH"
-          echo "Wrote $PYPIRC_PATH"
+          } > "$HOME/.pypirc"
+          echo "Wrote $HOME/.pypirc"
         env:
+          HOME: ${{ github.workspace }}
           PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -77,6 +74,7 @@ jobs:
       - name: Publish to GitHub Packages
         if: ${{ startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master' }}
         env:
+          HOME: ${{ github.workspace }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -85,6 +83,7 @@ jobs:
       - name: Publish to PyPI (optional)
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         env:
+          HOME: ${{ github.workspace }}
           PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         run: |
           if [ -z "$PYPI_API_TOKEN" ]; then
