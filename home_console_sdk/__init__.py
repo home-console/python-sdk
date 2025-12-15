@@ -1,4 +1,4 @@
-from .plugin import PluginBase
+from .plugin import PluginBase, InternalPluginBase
 from .client import CoreAPIClient
 from .models import (
     User,
@@ -19,6 +19,7 @@ __version__ = "1.0.0"
 
 __all__ = [
     "PluginBase",
+    "InternalPluginBase",
     "CoreAPIClient",
     "User",
     "Device",
