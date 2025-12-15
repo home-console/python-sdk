@@ -33,23 +33,21 @@ jobs:
 
       - name: Configure .pypirc for GitHub Packages and PyPI
         run: |
-          mkdir -p $HOME/.config/pypirc
-          cat > $HOME/.pypirc <<'PYPI'
-[distutils]
-index-servers =
-    github
-    pypi
-
-[github]
-repository: https://upload.pypi.github.com/legacy/
-username: $GITHUB_ACTOR
-password: $GITHUB_TOKEN
-
-[pypi]
-repository: https://upload.pypi.org/legacy/
-username: __token__
-password: $PYPI_API_TOKEN
-PYPI
+          mkdir -p "$HOME"
+          echo "[distutils]" > "$HOME/.pypirc"
+          echo "index-servers =" >> "$HOME/.pypirc"
+          echo "    github" >> "$HOME/.pypirc"
+          echo "    pypi" >> "$HOME/.pypirc"
+          echo "" >> "$HOME/.pypirc"
+          echo "[github]" >> "$HOME/.pypirc"
+          echo "repository: https://upload.pypi.github.com/legacy/" >> "$HOME/.pypirc"
+          echo "username: $GITHUB_ACTOR" >> "$HOME/.pypirc"
+          echo "password: $GITHUB_TOKEN" >> "$HOME/.pypirc"
+          echo "" >> "$HOME/.pypirc"
+          echo "[pypi]" >> "$HOME/.pypirc"
+          echo "repository: https://upload.pypi.org/legacy/" >> "$HOME/.pypirc"
+          echo "username: __token__" >> "$HOME/.pypirc"
+          echo "password: $PYPI_API_TOKEN" >> "$HOME/.pypirc"
         env:
           PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
 

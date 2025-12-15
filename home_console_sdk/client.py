@@ -106,12 +106,25 @@ class CoreAPIClient:
     
     # ========== PLUGINS ==========
     
-    async def list_plugins(self) -> List[Plugin]:
+    async def get_plugin(self, plugin_id: str):
+        """Получить информацию о плагине"""
+        response = await self.client.get(f"/api/v1/plugins/{plugin_id}")
+        return response.json()
+
+    async def get_list_plugins(self) -> List[Plugin]:
         """Список плагинов"""
         response = await self._request("GET", "/api/v1/admin/plugins")
         # Response is list of dicts with different structure
         return response
-    
+
+    async def call_plugin(self, plugin_id: str, endpoint: str, **kwargs):
+        """Вызвать endpoint другого плагина"""
+        response = await self.client.post(
+            f"/api/v1/{plugin_id}/{endpoint}",
+            json=kwargs
+        )
+        return response.json()
+
     async def get_stats(self) -> Dict[str, Any]:
         """Статистика системы"""
         return await self._request("GET", "/api/v1/admin/stats")
