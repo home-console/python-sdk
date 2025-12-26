@@ -19,3 +19,6 @@ class NotFoundError(APIError):
 class ValidationError(HomeConsoleSDKError):
     """Ошибка валидации"""
     pass
+
+# Backwards-compatibility alias: older imports expect SmartHomeSDKError
+SmartHomeSDKError = HomeConsoleSDKError

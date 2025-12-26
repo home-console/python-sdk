@@ -7,13 +7,20 @@ Two types of plugins are supported:
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, TYPE_CHECKING
 from .client import CoreAPIClient
+from .db import DatabaseClient
+from .events import EventsClient
+from .config import PluginConfig
+from .tasks import TaskManager
 import logging
 import os
 import json
 from pathlib import Path
 from fastapi import APIRouter
+
+if TYPE_CHECKING:
+    from fastapi import Request
 
 
 class PluginBase(ABC):
@@ -173,7 +180,11 @@ class InternalPluginBase(ABC):
     # Router для регистрации endpoint'ов
     router: Optional[APIRouter] = None
     
-    def __init__(self, app, db_session_maker, event_bus):
+    # Флаг состояния плагина
+    _is_loaded: bool = False
+    _router_mounted: bool = False
+    
+    def __init__(self, app, db_session_maker, event_bus, models: Optional[Dict[str, Any]] = None):
         """
         Инициализация плагина.
         
@@ -181,11 +192,40 @@ class InternalPluginBase(ABC):
             app: FastAPI приложение
             db_session_maker: async_sessionmaker для БД доступа
             event_bus: EventBus для публикации/подписки на события
+            models: Dict с SQLAlchemy моделями для Dependency Injection
+                    Пример: {'Device': Device, 'User': User, 'PluginBinding': PluginBinding}
+                    
+        Пример использования моделей:
+            ```python
+            class MyPlugin(InternalPluginBase):
+                async def on_load(self):
+                    # Получаем модель через DI
+                    Device = self.models.get('Device')
+                    
+                    if Device:
+                        async with self.db_session_maker() as db:
+                            device = Device(name="New Device")
+                            db.add(device)
+                            await db.commit()
+            ```
         """
         self.app = app
         self.db_session_maker = db_session_maker
         self.event_bus = event_bus
         self.logger = logging.getLogger(f"plugin.{self.id}")
+        
+        # Dependency Injection моделей
+        self.models = models or {}
+        
+        # Инициализация клиентов и утилит
+        self.db = DatabaseClient(self.id, db_session_maker)
+        self.events = EventsClient(self.id, event_bus)
+        self.config = PluginConfig(self.id)
+        self.tasks = TaskManager(self.id)
+        
+        # Флаги состояния
+        self._is_loaded = False
+        self._router_mounted = False
     
     @abstractmethod
     async def on_load(self):
@@ -195,6 +235,60 @@ class InternalPluginBase(ABC):
     async def on_unload(self):
         """Вызывается при выгрузке плагина (опционально)."""
         pass
+    
+    # ========== LIFECYCLE METHODS ==========
+    
+    async def mount_router(self):
+        """
+        Монтировать router в FastAPI приложение.
+        
+        Вызывается автоматически plugin_loader после on_load().
+        НЕ вызывайте вручную - используется только внутри plugin_loader!
+        """
+        if self.router and not self._router_mounted:
+            try:
+                # Монтируем router с prefix /plugins/{plugin_id}
+                self.app.include_router(
+                    self.router,
+                    prefix=f"/plugins/{self.id}",
+                    tags=[self.id]
+                )
+                self._router_mounted = True
+                self.logger.info(f"✅ Router mounted at /plugins/{self.id}")
+            except Exception as e:
+                self.logger.error(f"❌ Failed to mount router: {e}")
+                raise
+    
+    async def unmount_router(self):
+        """
+        Отмонтировать router из FastAPI приложения.
+        
+        Вызывается автоматически при on_unload() или при ошибке загрузки.
+        НЕ вызывайте вручную - используется только внутри plugin_loader!
+        """
+        if self.router and self._router_mounted:
+            try:
+                # FastAPI не имеет встроенного метода для удаления router
+                # Фильтруем routes, исключая routes этого плагина
+                prefix = f"/plugins/{self.id}"
+                self.app.routes = [
+                    route for route in self.app.routes
+                    if not (hasattr(route, 'path') and route.path.startswith(prefix))
+                ]
+                self._router_mounted = False
+                self.logger.info(f"✅ Router unmounted from /plugins/{self.id}")
+            except Exception as e:
+                self.logger.error(f"❌ Failed to unmount router: {e}")
+    
+    @property
+    def is_loaded(self) -> bool:
+        """Проверить, загружен ли плагин"""
+        return self._is_loaded
+    
+    @property
+    def is_router_mounted(self) -> bool:
+        """Проверить, смонтирован ли router"""
+        return self._router_mounted
     
     # ========== HELPER МЕТОДЫ ==========
     
@@ -206,8 +300,7 @@ class InternalPluginBase(ABC):
             event_name: Имя события (будет префиксировано plugin.id)
             data: Данные события
         """
-        full_event_name = f"{self.id}.{event_name}"
-        await self.event_bus.emit(full_event_name, data)
+        await self.events.emit(event_name, data)
     
     async def subscribe_event(self, event_pattern: str, handler):
         """
@@ -217,7 +310,7 @@ class InternalPluginBase(ABC):
             event_pattern: Паттерн события (например: "device.*" или "*.state_changed")
             handler: Async функция-обработчик(event_name: str, data: dict)
         """
-        await self.event_bus.subscribe(event_pattern, handler)
+        await self.events.subscribe(event_pattern, handler)
     
     def get_config(self, key: str, default: Any = None) -> Any:
         """
@@ -236,6 +329,104 @@ class InternalPluginBase(ABC):
         """
         env_key = f"PLUGIN_{self.id.upper().replace('-', '_')}_{key.upper()}"
         return os.getenv(env_key, default)
+    
+    async def _get_current_user_id(self, request) -> str:
+        """
+        Извлечь user_id из request без зависимостей от ядра.
+        
+        Использует только Dependency Injection и request.state, установленный middleware.
+        Не требует прямых импортов из core-service.
+        
+        Args:
+            request: FastAPI Request объект
+            
+        Returns:
+            user_id как строка
+            
+        Raises:
+            HTTPException: 401 если пользователь не авторизован
+            
+        Пример использования:
+            ```python
+            @router.get("/my-endpoint")
+            async def my_endpoint(request: Request):
+                user_id = await self._get_current_user_id(request)
+                # Используем user_id для работы с данными пользователя
+            ```
+        
+        Примечание:
+            - Плагины могут переопределить этот метод для кастомной логики
+            - Метод автоматически получает get_current_user_fn из app.state (если доступен)
+            - Middleware должен устанавливать request.state.user для cookie-авторизации
+        """
+        from fastapi import HTTPException
+        
+        # Option 1: User already set by middleware/dependency
+        if hasattr(request.state, 'user') and request.state.user:
+            user = request.state.user
+            # Handle both User object and dict payload
+            if hasattr(user, 'id'):
+                return str(user.id)
+            elif isinstance(user, dict):
+                user_id = user.get('sub') or user.get('id')
+                if user_id:
+                    return str(user_id)
+            else:
+                return str(user)
+        
+        # Option 2: Try to use get_current_user_fn if available (DI from core)
+        # This function is injected by plugin_loader and handles both Bearer token and cookies
+        get_current_user_fn = getattr(self, 'get_current_user_fn', None)
+        if not get_current_user_fn and hasattr(self, 'app'):
+            # Try to get from app.state (set by core-service)
+            get_current_user_fn = getattr(self.app.state, 'get_current_user', None)
+        
+        if get_current_user_fn:
+            try:
+                from fastapi.security import HTTPAuthorizationCredentials
+                
+                # Try with Bearer token first
+                auth_header = request.headers.get("Authorization")
+                if auth_header and auth_header.startswith("Bearer "):
+                    token = auth_header.split(" ")[1]
+                    # Create mock credentials object
+                    class MockCredentials:
+                        def __init__(self, token):
+                            self.credentials = token
+                    
+                    try:
+                        # Try to call with credentials
+                        user = await get_current_user_fn(request, MockCredentials(token))
+                        if user:
+                            return str(user.id if hasattr(user, 'id') else user)
+                    except Exception:
+                        # If that fails, try without credentials (it will check cookies)
+                        pass
+                
+                # Fallback: try without credentials (will check cookies)
+                try:
+                    user = await get_current_user_fn(request)
+                    if user:
+                        return str(user.id if hasattr(user, 'id') else user)
+                except Exception as e:
+                    self.logger.debug(f"get_current_user_fn failed: {e}")
+            except Exception as e:
+                self.logger.debug(f"Failed to use get_current_user_fn: {e}")
+        
+        # Option 3: Try to extract user_id from token payload directly (if middleware set it)
+        try:
+            # Check if there's a token payload in request state (set by middleware)
+            if hasattr(request.state, 'token_payload'):
+                payload = request.state.token_payload
+                if isinstance(payload, dict):
+                    user_id = payload.get('sub') or payload.get('id')
+                    if user_id:
+                        return str(user_id)
+        except Exception:
+            pass
+        
+        # No user found - raise 401
+        raise HTTPException(status_code=401, detail="Unauthorized: user authentication required")
     
     @classmethod
     def load_manifest(cls, manifest_path: str) -> Optional[Dict[str, Any]]:

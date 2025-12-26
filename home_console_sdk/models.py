@@ -43,6 +43,7 @@ class Plugin(BaseModel):
     name: str
     version: Optional[str] = None
     enabled: bool = True
+    loaded: bool = False
     plugin_type: str = "in_process"
     config: Optional[Dict[str, Any]] = None
     created_at: Optional[datetime] = None
