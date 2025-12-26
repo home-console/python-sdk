@@ -61,13 +61,11 @@ jobs:
           } > "$HOME/.pypirc"
           echo "Wrote $HOME/.pypirc"
         env:
-          HOME: ${{ github.workspace }}
           PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
 
       - name: Publish to PyPI
-        if: ${{ startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master' }}
+        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master'
         env:
-          HOME: ${{ github.workspace }}
           PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         run: |
           if [ -z "$PYPI_API_TOKEN" ]; then
