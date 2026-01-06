@@ -1,4 +1,5 @@
 from .plugin import PluginBase, InternalPluginBase
+from .remote_plugin import RemotePluginBase, create_lifecycle_handlers
 from .client import CoreAPIClient
 from .db import DatabaseClient
 from .events import EventsClient
@@ -29,6 +30,9 @@ __all__ = [
     # Plugin bases
     "PluginBase",
     "InternalPluginBase",
+    # Remote Plugin (NEW in v0.1.0)
+    "RemotePluginBase",
+    "create_lifecycle_handlers",
     # Clients
     "CoreAPIClient",
     "DatabaseClient",

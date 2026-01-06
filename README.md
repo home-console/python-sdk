@@ -103,16 +103,242 @@ self.router.include_router(auth_router)
 self.router.include_router(devices_router)
 ```
 
-## 📚 Документация
+## � SDK Philosophy
 
-### Типы плагинов
+### v0.1.0: Remote Plugin Contract Stabilization
 
-SDK поддерживает два типа плагинов:
+Home Console SDK v0.1.0 реализует формальный **[Remote Plugin Contract](https://github.com/home-console/core-runtime-service/REMOTE_PLUGIN_CONTRACT.md)**.
 
-1. **InternalPluginBase** — Встроенные плагины (загружаются в core-service)
-2. **PluginBase** — Внешние плагины (микросервисы, HTTP API)
+SDK строится на 5 принципах:
 
-### Пример встроенного плагина
+1. **Тонкий wrapper** — SDK помогает реализовать контракт, не навязывает архитектуру
+2. **Полная прозрачность** — нет магии, скрытых зависимостей или автогенерации
+3. **Удаляемость** — если убрать SDK, плагин остаётся понятным и работающим
+4. **Контракт первичен** — SDK реализует контракт, не расширяет его
+5. **Без vendor lock-in** — плагин может быть на любом языке с поддержкой HTTP
+
+### Три типа плагинов
+
+SDK поддерживает три паттерна:
+
+| Тип | Класс | Где запускается | Когда использовать |
+|-----|-------|-----------------|-------------------|
+| **In-process** | `InternalPluginBase` | В core-service процессе | Встроенные плагины, нужен доступ к Core |
+| **Remote System** | `RemotePluginBase` | Отдельный HTTP процесс | System plugins (logger, metrics, etc.) |
+| **External Service** | `PluginBase` (deprecated) | Микросервис | Legacy external APIs |
+
+---
+
+## 🚀 Remote System Plugins (NEW in v0.1.0)
+
+### Что это?
+
+Remote plugin это **standalone HTTP сервис**, которым управляет Core Runtime через HTTP lifecycle контракт.
+
+**Примеры:**
+- `remote_logger` — система логирования
+- `remote_metrics` — сборщик метрик
+- `remote_health` — health check сервис
+
+### Минимальный пример (20 строк)
+
+```python
+from fastapi import FastAPI
+from home_console_sdk import RemotePluginBase, create_lifecycle_handlers
+import asyncio
+
+class MyMetricsPlugin(RemotePluginBase):
+    name = "remote_metrics"
+    version = "0.1.0"
+    description = "Удалённый сборщик метрик"
+    
+    def __init__(self):
+        super().__init__()
+        # Регистрируем сервис, который предоставляет плагин
+        self.register_service("metrics.report", "/metrics/report", "POST")
+    
+    async def on_load(self):
+        """Инициализация (выполняется один раз при загрузке)"""
+        print("Plugin initialized")
+    
+    async def on_start(self):
+        """Запуск (начать обслуживать запросы)"""
+        print("Plugin started")
+    
+    async def on_stop(self):
+        """Остановка (прекратить обслуживать запросы)"""
+        print("Plugin stopped")
+    
+    async def on_unload(self):
+        """Выгрузка (финальная очистка)"""
+        print("Plugin unloaded")
+
+# Создаём HTTP приложение
+app = FastAPI(title="Metrics Plugin")
+plugin = MyMetricsPlugin()
+
+# Мастируем lifecycle endpoints автоматически
+handlers = create_lifecycle_handlers(plugin)
+app.add_api_route("/plugin/metadata", handlers["metadata"], methods=["GET"])
+app.add_api_route("/plugin/health", handlers["health"], methods=["GET"])
+app.add_api_route("/plugin/load", handlers["load"], methods=["POST"])
+app.add_api_route("/plugin/start", handlers["start"], methods=["POST"])
+app.add_api_route("/plugin/stop", handlers["stop"], methods=["POST"])
+app.add_api_route("/plugin/unload", handlers["unload"], methods=["POST"])
+
+# Реализуем сервисный endpoint
+@app.post("/metrics/report")
+async def report_metrics(request):
+    """Сервис для отправки метрик"""
+    body = await request.json()
+    kwargs = body.get("kwargs", {})  # Параметры от Core
+    name = kwargs.get("name")
+    value = kwargs.get("value")
+    tags = kwargs.get("tags", {})
+    
+    print(f"Metric: {name}={value} {tags}")
+    return {"status": "ok"}
+
+# Запуск
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8002)
+```
+
+**Использование из Core:**
+
+```python
+# Core видит плагин как обычный plugin через proxy
+# Сервис "metrics.report" зарегистрирован и доступен
+await runtime.service_registry.call(
+    "metrics.report",
+    name="cpu_usage",
+    value=0.42,
+    tags={"host": "server1"}
+)
+```
+
+### Lifecycle контракт
+
+Remote plugin обязан реализовать 4 метода:
+
+| Метод | HTTP | Описание | Идемпотентно? |
+|-------|------|---------|--------------|
+| `on_load()` | POST `/plugin/load` | Инициализация ресурсов | ✅ Yes |
+| `on_start()` | POST `/plugin/start` | Запуск фоновых задач | ✅ Yes |
+| `on_stop()` | POST `/plugin/stop` | Остановка фоновых задач | ✅ Yes |
+| `on_unload()` | POST `/plugin/unload` | Финальная очистка | ✅ Yes |
+
+Плюс информационные endpoints:
+
+| Метод | HTTP | Описание |
+|-------|------|---------|
+| `get_metadata()` | GET `/plugin/metadata` | Описание плагина и сервисов |
+| `health()` | GET `/plugin/health` | Статус плагина |
+
+### Регистрация сервисов
+
+```python
+class MyPlugin(RemotePluginBase):
+    def __init__(self):
+        super().__init__()
+        
+        # Регистрируем сервисы
+        self.register_service(
+            name="metrics.report",      # Имя в ServiceRegistry
+            endpoint="/metrics/report", # HTTP endpoint
+            method="POST",              # HTTP метод
+            description="Report metric" # Опциональное описание
+        )
+        
+        self.register_service(
+            name="metrics.dump",
+            endpoint="/metrics/dump",
+            method="GET"
+        )
+    
+    async def on_load(self):
+        # Валидировать метаданные перед запуском
+        errors = self.validate_metadata()
+        if errors:
+            for error in errors:
+                print(f"ERROR: {error}")
+            raise ValueError("Invalid metadata")
+
+# Получить метаданные для отправки в /plugin/metadata
+metadata = plugin.get_metadata()
+# {
+#     "name": "my_plugin",
+#     "version": "0.1.0",
+#     "services": [
+#         {"name": "metrics.report", "endpoint": "/metrics/report", "method": "POST"},
+#         {"name": "metrics.dump", "endpoint": "/metrics/dump", "method": "GET"}
+#     ]
+# }
+```
+
+### Payload format
+
+Core вызывает сервис через proxy с payload:
+
+```json
+{
+  "args": [],
+  "kwargs": {
+    "name": "cpu_usage",
+    "value": 0.42,
+    "tags": {"host": "server1"}
+  }
+}
+```
+
+Плагин обрабатывает kwargs:
+
+```python
+@app.post("/metrics/report")
+async def report_metrics(request):
+    body = await request.json()
+    kwargs = body.get("kwargs", {})  # {"name": "cpu_usage", ...}
+    
+    name = kwargs.get("name")
+    value = kwargs.get("value")
+    tags = kwargs.get("tags", {})
+    
+    # Ваша логика обработки метрики
+    store_metric(name, value, tags)
+    
+    return {"status": "ok"}
+```
+
+### Error handling
+
+Remote plugin **не должен** валить Core. Ошибки изолированы:
+
+```python
+# ✅ Хорошо: ошибка обработана, вернён JSON
+@app.post("/metrics/report")
+async def report_metrics(request):
+    try:
+        body = await request.json()
+        validate_metric(body)
+        store_metric(body)
+        return {"status": "ok"}
+    except ValueError as e:
+        return {"status": "error", "message": str(e)}
+
+# ❌ Плохо: исключение кидается, proxy получит 500
+@app.post("/metrics/report")
+async def report_metrics(request):
+    body = await request.json()
+    store_metric(body)  # может выбросить
+    return {"status": "ok"}
+```
+
+---
+
+## 📚 Встроенные плагины
+
+### In-process plugins (InternalPluginBase)
 
 ```python
 from home_console_sdk import InternalPluginBase
