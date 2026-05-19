@@ -1,24 +1,11 @@
-from .plugin import PluginBase, InternalPluginBase
-from .remote_plugin import RemotePluginBase, create_lifecycle_handlers
-from .client import CoreAPIClient
-from .db import DatabaseClient
-from .events import EventsClient
-from .config import PluginConfig
-from .tasks import TaskManager, BackgroundTask, background_task, schedule
-from .auth import PluginAuth, require_api_key, require_bearer_token
-from .models import (
-    User,
-    Device,
-    DeviceCreate,
-    DeviceUpdate,
-    Plugin
-)
+# Core plugin contract — главный публичный API
+from .plugin import BasePlugin, PluginMetadata, PluginRuntime, PluginBase, InternalPluginBase
 from .exceptions import (
     HomeConsoleSDKError,
     AuthenticationError,
     APIError,
     NotFoundError,
-    ValidationError
+    ValidationError,
 )
 
 try:
@@ -27,33 +14,15 @@ except ImportError:
     __version__ = "0.0.0.dev0"
 
 __all__ = [
-    # Plugin bases
+    # Основной контракт плагина
+    "BasePlugin",
+    "PluginMetadata",
+    "PluginRuntime",
+    # Внешние плагины-микросервисы
     "PluginBase",
+    # Совместимость со старым кодом
     "InternalPluginBase",
-    # Remote Plugin (NEW in v0.1.0)
-    "RemotePluginBase",
-    "create_lifecycle_handlers",
-    # Clients
-    "CoreAPIClient",
-    "DatabaseClient",
-    "EventsClient",
-    # Utilities
-    "PluginConfig",
-    "TaskManager",
-    "BackgroundTask",
-    "background_task",
-    "schedule",
-    # Auth
-    "PluginAuth",
-    "require_api_key",
-    "require_bearer_token",
-    # Models
-    "User",
-    "Device",
-    "DeviceCreate",
-    "DeviceUpdate",
-    "Plugin",
-    # Exceptions
+    # Исключения
     "HomeConsoleSDKError",
     "AuthenticationError",
     "APIError",
@@ -61,6 +30,6 @@ __all__ = [
     "ValidationError",
 ]
 
-# Backwards-compatibility alias
+# Backwards-compat alias
 SmartHomeSDKError = HomeConsoleSDKError
 __all__.append("SmartHomeSDKError")

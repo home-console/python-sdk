@@ -6,12 +6,8 @@ setup(
     description="SDK for Home Console Plugin Development",
     author="Mishazx",
     packages=find_packages(),
-    setup_requires=["setuptools_scm"],
-    install_requires=[
-        "httpx>=0.25.0",
-        "pydantic>=2.5.0",
-        "sqlalchemy>=2.0.0",
-    ],
+    version="0.2.0",
+    install_requires=[],  # zero runtime deps — контракт на чистом Python
     extras_require={
         "dev": [
             "pytest>=7.0.0",
