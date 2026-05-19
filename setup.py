@@ -1,5 +1,8 @@
+import re
 from setuptools import setup, find_packages
-from home_console_sdk._version import __version__
+
+with open("home_console_sdk/_version.py") as _f:
+    __version__ = re.search(r'__version__ = "(.+)"', _f.read()).group(1)
 
 setup(
     name="home-console-sdk",
