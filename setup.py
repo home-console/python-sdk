@@ -1,8 +1,9 @@
 from setuptools import setup, find_packages
+from home_console_sdk._version import __version__
 
 setup(
     name="home-console-sdk",
-    version="0.2.0",
+    version=__version__,
     description="SDK for Home Console Plugin Development",
     author="Mishazx",
     packages=find_packages(),
